@@ -1,0 +1,141 @@
+ <!DOCTYPE html>
+  <html>
+  <head>
+    <title>XIAO Bubble Level</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #1a1a2e;
+        color: white;
+        padding: 20px;
+        margin: 0;
+      }
+      h1 { margin-bottom: 10px; }
+      button {
+        padding: 14px 28px;
+        font-size: 16px;
+        background: #0f3460;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        margin: 10px;
+      }
+      #status { color: #aaa; font-size: 14px; margin: 5px; }
+      #angles { font-size: 20px; margin: 10px; letter-spacing: 1px; }
+    </style>
+  </head>
+  <body>
+    <h1>Bubble Level</h1>
+    <button onclick="connect()">Connect to XIAO-Level</button>
+    <div id="status">Not connected</div>
+    <canvas id="level" width="300" height="300"></canvas>
+    <div id="angles">Pitch: --  Roll: --</div>
+
+    <script>
+      const SERVICE_UUID = 'a4a8d462-495b-4d5e-9a62-d8b5c6e4f301';
+      const CHAR_UUID    = 'a4a8d463-495b-4d5e-9a62-d8b5c6e4f301';
+
+      let pitch = 0, roll = 0;
+
+        async function connect() {
+    try {
+      document.getElementById('status').textContent = 'Scanning...';
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }]
+      });
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      const char = await service.getCharacteristic(CHAR_UUID);
+      await char.startNotifications();
+      char.addEventListener('characteristicvaluechanged', onData);
+      document.getElementById('status').textContent = 'Connected to ' + device.name;
+    } catch (e) {
+      document.getElementById('status').textContent = 'Error: ' + e.message;
+    }
+  }
+
+      function onData(event) {
+        const text = new TextDecoder().decode(event.target.value);
+        const parts = text.trim().split(',');
+        if (parts.length === 2) {
+          pitch = parseFloat(parts[0]);
+          roll  = parseFloat(parts[1]);
+          document.getElementById('angles').textContent =
+            `Pitch: ${pitch.toFixed(1)}°   Roll: ${roll.toFixed(1)}°`;
+          draw();
+        }
+      }
+
+      function draw() {
+        const canvas = document.getElementById('level');
+        const ctx = canvas.getContext('2d');
+        const cx = canvas.width  / 2;
+        const cy = canvas.height / 2;
+        const outerR   = 130;
+        const targetR  = 30;
+        const bubbleR  = 25;
+        const maxAngle = 30; // degrees = full scale deflection
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Outer housing
+        ctx.beginPath();
+        ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+        ctx.fillStyle = '#111122';
+        ctx.fill();
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Crosshairs
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(cx - outerR, cy); ctx.lineTo(cx + outerR, cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, cy - outerR); ctx.lineTo(cx, cy + outerR); ctx.stroke();
+
+        // Target ring (level zone)
+        ctx.beginPath();
+        ctx.arc(cx, cy, targetR, 0, Math.PI * 2);
+        ctx.strokeStyle = '#0f3';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Bubble position — clamp inside outer ring
+        const maxDisplace = outerR - bubbleR - 4;
+        let bx = cx + (roll  / maxAngle) * maxDisplace;
+        let by = cy - (pitch / maxAngle) * maxDisplace;
+        const dist = Math.sqrt((bx - cx) ** 2 + (by - cy) ** 2);
+        if (dist > maxDisplace) {
+          bx = cx + (bx - cx) * maxDisplace / dist;
+          by = cy + (by - cy) * maxDisplace / dist;
+        }
+
+        // Bubble color: green when centered, red when tilted
+        const levelRatio = Math.min(dist / (targetR - bubbleR / 2), 1);
+        const r = Math.round(levelRatio * 220);
+        const g = Math.round((1 - levelRatio) * 200 + 50);
+
+        // Bubble with glare effect
+        const grad = ctx.createRadialGradient(bx - 7, by - 7, 2, bx, by, bubbleR);
+        grad.addColorStop(0,   'rgba(255,255,255,0.9)');
+        grad.addColorStop(0.3, `rgb(${r},${g},40)`);
+        grad.addColorStop(1,   'rgba(0,0,0,0.4)');
+
+        ctx.beginPath();
+        ctx.arc(bx, by, bubbleR, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      draw(); // draw initial state
+    </script>
+  </body>
+  </html>
