@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+ <!DOCTYPE html>
   <html>
   <head>
     <title>XIAO Bubble Level</title>
@@ -35,8 +35,8 @@
       button:disabled { background: #1a3a2a; color: #4a8a6a; cursor: default; border: 1px dashed #4a8a6a; }
       #calibrateBtn { background: #2d6a4f; }
       #calibrateBtn:hover { background: #1b4332; }
-      #status { color: #aaa; font-size: 14px; margin: 8px; text-align: center; }
-      #angles { font-size: 20px; margin: 10px; letter-spacing: 1px; }
+      #status  { color: #aaa; font-size: 14px; margin: 8px; text-align: center; }
+      #angles  { font-size: 20px; margin: 10px; letter-spacing: 1px; }
       #calInfo { font-size: 12px; color: #666; margin-top: 4px; text-align: center; }
     </style>
   </head>
@@ -47,7 +47,7 @@
       <button id="calibrateBtn" onclick="calibrate()" disabled>Calibrate (Set Level)</button>
     </div>
     <div id="status">Not connected</div>
-    <canvas id="level" width="300" height="300"></canvas>
+    <canvas id="level" width="320" height="320"></canvas>
     <div id="angles">Pitch: --&nbsp;&nbsp;&nbsp;Roll: --</div>
     <div id="calInfo">No calibration stored</div>
 
@@ -76,11 +76,7 @@
       function calibrate() {
         pitchOffset = pitch + pitchOffset;
         rollOffset  = roll  + rollOffset;
-        const cal = {
-          pitchOffset: pitchOffset,
-          rollOffset:  rollOffset,
-          timestamp:   Date.now()
-        };
+        const cal = { pitchOffset, rollOffset, timestamp: Date.now() };
         localStorage.setItem(CAL_KEY, JSON.stringify(cal));
         const date = new Date(cal.timestamp).toLocaleString();
         document.getElementById('calInfo').textContent =
@@ -115,8 +111,7 @@
         document.getElementById('connectBtn').textContent = 'Connect to XIAO-Level';
         document.getElementById('connectBtn').disabled = false;
         document.getElementById('calibrateBtn').disabled = true;
-        pitch = 0;
-        roll  = 0;
+        pitch = 0; roll = 0;
         draw();
       }
 
@@ -133,28 +128,68 @@
       }
 
       function draw() {
-        const canvas = document.getElementById('level');
-        const ctx    = canvas.getContext('2d');
-        const cx     = canvas.width  / 2;
-        const cy     = canvas.height / 2;
-        const outerR  = 130;
+        const canvas  = document.getElementById('level');
+        const ctx     = canvas.getContext('2d');
+        const cx      = canvas.width  / 2;
+        const cy      = canvas.height / 2;
+        const outerR  = 140;
         const targetR = 30;
         const bubbleR = 25;
         const maxAngle = 30;
+        const maxDisplace = outerR - bubbleR - 4;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Outer housing
+        // Outer housing fill
         ctx.beginPath();
         ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
         ctx.fillStyle = '#111122';
         ctx.fill();
+
+        // --- Degree scale rings at 10° and 20° ---
+        ctx.setLineDash([3, 4]);
+        ctx.lineWidth = 1;
+        [10, 20].forEach(deg => {
+          const r = (deg / maxAngle) * maxDisplace;
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.strokeStyle = '#2a2a50';
+          ctx.stroke();
+        });
+        ctx.setLineDash([]);
+
+        // Degree labels (right side of each ring)
+        ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'left';
+        [10, 20].forEach(deg => {
+          const r = (deg / maxAngle) * maxDisplace;
+          ctx.fillStyle = '#445';
+          ctx.fillText(`${deg}°`, cx + r + 3, cy + 4);
+        });
+        // Outer ring label
+        ctx.fillStyle = '#445';
+        ctx.fillText('30°', cx + outerR - 26, cy + 4);
+
+        // Tick marks around outer ring (every 10°, at 4 cardinal points)
+        ctx.lineWidth = 2;
+        [0, 90, 180, 270].forEach(angleDeg => {
+          const rad = (angleDeg - 90) * Math.PI / 180;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(rad) * (outerR - 10), cy + Math.sin(rad) * (outerR - 10));
+          ctx.lineTo(cx + Math.cos(rad) * outerR,        cy + Math.sin(rad) * outerR);
+          ctx.strokeStyle = '#555';
+          ctx.stroke();
+        });
+
+        // Outer housing ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
         ctx.strokeStyle = '#555';
         ctx.lineWidth = 3;
         ctx.stroke();
 
         // Crosshairs
-        ctx.strokeStyle = '#333';
+        ctx.strokeStyle = '#252540';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(cx - outerR, cy); ctx.lineTo(cx + outerR, cy); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx, cy - outerR); ctx.lineTo(cx, cy + outerR); ctx.stroke();
@@ -167,7 +202,6 @@
         ctx.stroke();
 
         // Bubble position — clamped inside outer ring
-        const maxDisplace = outerR - bubbleR - 4;
         let bx = cx + (roll  / maxAngle) * maxDisplace;
         let by = cy - (pitch / maxAngle) * maxDisplace;
         const dist = Math.sqrt((bx - cx) ** 2 + (by - cy) ** 2);
