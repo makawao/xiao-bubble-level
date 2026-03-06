@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+  <!DOCTYPE html>
   <html>
   <head>
     <title>XIAO Bubble Level</title>
@@ -15,6 +15,12 @@
         margin: 0;
       }
       h1 { margin-bottom: 10px; }
+      .buttons {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
       button {
         padding: 14px 28px;
         font-size: 16px;
@@ -23,48 +29,103 @@
         border: none;
         border-radius: 8px;
         cursor: pointer;
-        margin: 10px;
+        margin: 5px;
       }
-      #status { color: #aaa; font-size: 14px; margin: 5px; }
+      button:hover { background: #16213e; }
+      button:disabled { background: #1a3a2a; color: #4a8a6a; cursor: default; border: 1px dashed #4a8a6a; }
+      #calibrateBtn { background: #2d6a4f; }
+      #calibrateBtn:hover { background: #1b4332; }
+      #status { color: #aaa; font-size: 14px; margin: 8px; text-align: center; }
       #angles { font-size: 20px; margin: 10px; letter-spacing: 1px; }
+      #calInfo { font-size: 12px; color: #666; margin-top: 4px; text-align: center; }
     </style>
   </head>
   <body>
     <h1>Bubble Level</h1>
-    <button onclick="connect()">Connect to XIAO-Level</button>
+    <div class="buttons">
+      <button id="connectBtn" onclick="connect()">Connect to XIAO-Level</button>
+      <button id="calibrateBtn" onclick="calibrate()" disabled>Calibrate (Set Level)</button>
+    </div>
     <div id="status">Not connected</div>
     <canvas id="level" width="300" height="300"></canvas>
-    <div id="angles">Pitch: --  Roll: --</div>
+    <div id="angles">Pitch: --&nbsp;&nbsp;&nbsp;Roll: --</div>
+    <div id="calInfo">No calibration stored</div>
 
     <script>
       const SERVICE_UUID = 'a4a8d462-495b-4d5e-9a62-d8b5c6e4f301';
       const CHAR_UUID    = 'a4a8d463-495b-4d5e-9a62-d8b5c6e4f301';
+      const CAL_KEY      = 'xiao_level_calibration';
 
       let pitch = 0, roll = 0;
+      let pitchOffset = 0, rollOffset = 0;
 
-        async function connect() {
-    try {
-      document.getElementById('status').textContent = 'Scanning...';
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }]
-      });
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService(SERVICE_UUID);
-      const char = await service.getCharacteristic(CHAR_UUID);
-      await char.startNotifications();
-      char.addEventListener('characteristicvaluechanged', onData);
-      document.getElementById('status').textContent = 'Connected to ' + device.name;
-    } catch (e) {
-      document.getElementById('status').textContent = 'Error: ' + e.message;
-    }
-  }
+      function loadCalibration() {
+        const stored = localStorage.getItem(CAL_KEY);
+        if (stored) {
+          const cal = JSON.parse(stored);
+          pitchOffset = cal.pitchOffset;
+          rollOffset  = cal.rollOffset;
+          const date  = new Date(cal.timestamp).toLocaleString();
+          document.getElementById('calInfo').textContent =
+            `Calibrated: ${date}  (Pitch offset: ${pitchOffset.toFixed(1)}°  Roll offset: ${rollOffset.toFixed(1)}°)`;
+        } else {
+          document.getElementById('calInfo').textContent = 'No calibration stored';
+        }
+      }
+
+      function calibrate() {
+        pitchOffset = pitch + pitchOffset;
+        rollOffset  = roll  + rollOffset;
+        const cal = {
+          pitchOffset: pitchOffset,
+          rollOffset:  rollOffset,
+          timestamp:   Date.now()
+        };
+        localStorage.setItem(CAL_KEY, JSON.stringify(cal));
+        const date = new Date(cal.timestamp).toLocaleString();
+        document.getElementById('calInfo').textContent =
+          `Calibrated: ${date}  (Pitch offset: ${pitchOffset.toFixed(1)}°  Roll offset: ${rollOffset.toFixed(1)}°)`;
+        document.getElementById('status').textContent = 'Calibrated — bubble centred to current surface';
+      }
+
+      async function connect() {
+        try {
+          document.getElementById('status').textContent = 'Scanning...';
+          document.getElementById('connectBtn').disabled = true;
+          const device = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [SERVICE_UUID] }]
+          });
+          const server = await device.gatt.connect();
+          const service = await server.getPrimaryService(SERVICE_UUID);
+          const char = await service.getCharacteristic(CHAR_UUID);
+          await char.startNotifications();
+          char.addEventListener('characteristicvaluechanged', onData);
+          document.getElementById('status').textContent = 'Connected to ' + device.name;
+          document.getElementById('connectBtn').textContent = 'Connected';
+          document.getElementById('calibrateBtn').disabled = false;
+          device.addEventListener('gattserverdisconnected', onDisconnect);
+        } catch (e) {
+          document.getElementById('status').textContent = 'Error: ' + e.message;
+          document.getElementById('connectBtn').disabled = false;
+        }
+      }
+
+      function onDisconnect() {
+        document.getElementById('status').textContent = 'Disconnected — tap Connect to reconnect';
+        document.getElementById('connectBtn').textContent = 'Connect to XIAO-Level';
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('calibrateBtn').disabled = true;
+        pitch = 0;
+        roll  = 0;
+        draw();
+      }
 
       function onData(event) {
         const text = new TextDecoder().decode(event.target.value);
         const parts = text.trim().split(',');
         if (parts.length === 2) {
-          pitch = parseFloat(parts[0]);
-          roll  = parseFloat(parts[1]);
+          pitch = parseFloat(parts[0]) - pitchOffset;
+          roll  = parseFloat(parts[1]) - rollOffset;
           document.getElementById('angles').textContent =
             `Pitch: ${pitch.toFixed(1)}°   Roll: ${roll.toFixed(1)}°`;
           draw();
@@ -73,13 +134,13 @@
 
       function draw() {
         const canvas = document.getElementById('level');
-        const ctx = canvas.getContext('2d');
-        const cx = canvas.width  / 2;
-        const cy = canvas.height / 2;
-        const outerR   = 130;
-        const targetR  = 30;
-        const bubbleR  = 25;
-        const maxAngle = 30; // degrees = full scale deflection
+        const ctx    = canvas.getContext('2d');
+        const cx     = canvas.width  / 2;
+        const cy     = canvas.height / 2;
+        const outerR  = 130;
+        const targetR = 30;
+        const bubbleR = 25;
+        const maxAngle = 30;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -105,7 +166,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Bubble position — clamp inside outer ring
+        // Bubble position — clamped inside outer ring
         const maxDisplace = outerR - bubbleR - 4;
         let bx = cx + (roll  / maxAngle) * maxDisplace;
         let by = cy - (pitch / maxAngle) * maxDisplace;
@@ -115,17 +176,16 @@
           by = cy + (by - cy) * maxDisplace / dist;
         }
 
-        // Bubble color: green when centered, red when tilted
+        // Bubble color: green when centred, red when tilted
         const levelRatio = Math.min(dist / (targetR - bubbleR / 2), 1);
         const r = Math.round(levelRatio * 220);
         const g = Math.round((1 - levelRatio) * 200 + 50);
 
-        // Bubble with glare effect
+        // Bubble with glare
         const grad = ctx.createRadialGradient(bx - 7, by - 7, 2, bx, by, bubbleR);
         grad.addColorStop(0,   'rgba(255,255,255,0.9)');
         grad.addColorStop(0.3, `rgb(${r},${g},40)`);
         grad.addColorStop(1,   'rgba(0,0,0,0.4)');
-
         ctx.beginPath();
         ctx.arc(bx, by, bubbleR, 0, Math.PI * 2);
         ctx.fillStyle = grad;
@@ -135,7 +195,8 @@
         ctx.stroke();
       }
 
-      draw(); // draw initial state
+      loadCalibration();
+      draw();
     </script>
   </body>
   </html>
