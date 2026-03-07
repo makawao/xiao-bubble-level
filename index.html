@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
   <html>
   <head>
     <title>XIAO Bubble Level</title>
@@ -38,6 +38,23 @@
       #status  { color: #aaa; font-size: 14px; margin: 8px; text-align: center; }
       #angles  { font-size: 20px; margin: 10px; letter-spacing: 1px; }
       #calInfo { font-size: 12px; color: #666; margin-top: 4px; text-align: center; }
+      #deviceCal {
+        font-size: 13px;
+        margin-top: 6px;
+        padding: 4px 12px;
+        border-radius: 4px;
+        text-align: center;
+      }
+      #deviceCal.zeroed {
+        background: #1b4332;
+        color: #4ade80;
+        border: 1px solid #2d6a4f;
+      }
+      #deviceCal.not-zeroed {
+        background: #2a2a40;
+        color: #888;
+        border: 1px solid #444;
+      }
     </style>
   </head>
   <body>
@@ -47,6 +64,7 @@
       <button id="calibrateBtn" onclick="calibrate()" disabled>Calibrate (Set Level)</button>
     </div>
     <div id="status">Not connected</div>
+    <div id="deviceCal" class="not-zeroed">Device: Not zeroed (press button on device to zero)</div>
     <canvas id="level" width="320" height="320"></canvas>
     <div id="angles">Pitch: --&nbsp;&nbsp;&nbsp;Roll: --</div>
     <div id="calInfo">No calibration stored</div>
@@ -58,6 +76,7 @@
 
       let pitch = 0, roll = 0;
       let pitchOffset = 0, rollOffset = 0;
+      let deviceCalibrated = false;
 
       function loadCalibration() {
         const stored = localStorage.getItem(CAL_KEY);
@@ -67,9 +86,21 @@
           rollOffset  = cal.rollOffset;
           const date  = new Date(cal.timestamp).toLocaleString();
           document.getElementById('calInfo').textContent =
-            `Calibrated: ${date}  (Pitch offset: ${pitchOffset.toFixed(1)}°  Roll offset: ${rollOffset.toFixed(1)}°)`;
+            `Web cal: ${date}  (Pitch offset: ${pitchOffset.toFixed(1)}°  Roll offset: ${rollOffset.toFixed(1)}°)`;
         } else {
-          document.getElementById('calInfo').textContent = 'No calibration stored';
+          document.getElementById('calInfo').textContent = 'No web calibration stored';
+        }
+      }
+
+      function updateDeviceCalStatus(calibrated) {
+        const el = document.getElementById('deviceCal');
+        deviceCalibrated = calibrated;
+        if (calibrated) {
+          el.textContent = 'Device: Zeroed ✓ (button on device was pressed)';
+          el.className = 'zeroed';
+        } else {
+          el.textContent = 'Device: Not zeroed (press button on device to zero)';
+          el.className = 'not-zeroed';
         }
       }
 
@@ -80,7 +111,7 @@
         localStorage.setItem(CAL_KEY, JSON.stringify(cal));
         const date = new Date(cal.timestamp).toLocaleString();
         document.getElementById('calInfo').textContent =
-          `Calibrated: ${date}  (Pitch offset: ${pitchOffset.toFixed(1)}°  Roll offset: ${rollOffset.toFixed(1)}°)`;
+          `Web cal: ${date}  (Pitch offset: ${pitchOffset.toFixed(1)}°  Roll offset: ${rollOffset.toFixed(1)}°)`;
         document.getElementById('status').textContent = 'Calibrated — bubble centred to current surface';
       }
 
@@ -111,6 +142,7 @@
         document.getElementById('connectBtn').textContent = 'Connect to XIAO-Level';
         document.getElementById('connectBtn').disabled = false;
         document.getElementById('calibrateBtn').disabled = true;
+        updateDeviceCalStatus(false);
         pitch = 0; roll = 0;
         draw();
       }
@@ -118,9 +150,19 @@
       function onData(event) {
         const text = new TextDecoder().decode(event.target.value);
         const parts = text.trim().split(',');
-        if (parts.length === 2) {
+
+        // Support both old format "pitch,roll" and new format "pitch,roll,calibrated"
+        if (parts.length >= 2) {
+          // Device now sends corrected (already zeroed) angles when device-calibrated,
+          // so we apply the web-side offset on top of whatever the device sends.
           pitch = parseFloat(parts[0]) - pitchOffset;
           roll  = parseFloat(parts[1]) - rollOffset;
+
+          // Parse device calibration status if present (third field)
+          if (parts.length >= 3) {
+            updateDeviceCalStatus(parseInt(parts[2]) === 1);
+          }
+
           document.getElementById('angles').textContent =
             `Pitch: ${pitch.toFixed(1)}°   Roll: ${roll.toFixed(1)}°`;
           draw();
